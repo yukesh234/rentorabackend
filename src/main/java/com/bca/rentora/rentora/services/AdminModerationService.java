@@ -9,6 +9,6 @@ import java.util.UUID;
 public interface AdminModerationService {
     List<PendingListingDto> getPendingListings();
     void approveListing(UUID listingId);
-    void rejectListing(UUID listingId);
+    void rejectListing(UUID listingId, String reason);
     List<AdminUserSummaryDto> getAllUsers();
 }

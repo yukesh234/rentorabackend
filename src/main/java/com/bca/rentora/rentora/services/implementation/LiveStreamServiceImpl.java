@@ -1,12 +1,14 @@
 package com.bca.rentora.rentora.services.implementation;
 
 import com.bca.rentora.rentora.dtos.livestream.LiveStreamDto;
+import com.bca.rentora.rentora.dtos.livestream.SignalMessageDto;
 import com.bca.rentora.rentora.entity.Booking;
 import com.bca.rentora.rentora.entity.LiveStream;
 import com.bca.rentora.rentora.exceptions.ResourceNotFoundException;
 import com.bca.rentora.rentora.repo.BookingRepo;
 import com.bca.rentora.rentora.repo.LiveStreamRepo;
 import com.bca.rentora.rentora.services.LiveStreamService;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,12 +23,15 @@ public class LiveStreamServiceImpl implements LiveStreamService {
 
     private final LiveStreamRepo liveStreamRepo;
     private final BookingRepo bookingRepo;
+    private final SimpMessagingTemplate messagingTemplate;
 
     private static final Duration EARLY_START_WINDOW = Duration.ofMinutes(30);
 
-    public LiveStreamServiceImpl(LiveStreamRepo liveStreamRepo, BookingRepo bookingRepo) {
+    public LiveStreamServiceImpl(LiveStreamRepo liveStreamRepo, BookingRepo bookingRepo,
+                                 SimpMessagingTemplate messagingTemplate) {
         this.liveStreamRepo = liveStreamRepo;
         this.bookingRepo = bookingRepo;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @Override
@@ -77,11 +82,32 @@ public class LiveStreamServiceImpl implements LiveStreamService {
             throw new IllegalArgumentException("You do not own this booking");
         }
 
+        // already ended: nothing to do, and don't tell the viewers twice
+        if (!Boolean.TRUE.equals(stream.getIsLive())) {
+            return toDto(stream);
+        }
+
         stream.setIsLive(false);
         stream.setEndedAt(Instant.now());
         liveStreamRepo.save(stream);
 
+        broadcastEnded(stream);
+
         return toDto(stream);
+    }
+
+    @Override
+    @Transactional
+    public void endExpiredStreams() {
+        Instant now = Instant.now();
+        for (LiveStream stream : liveStreamRepo.findByIsLiveTrue()) {
+            if (stream.getBooking().getEndTime().isBefore(now)) {
+                stream.setIsLive(false);
+                stream.setEndedAt(now);
+                liveStreamRepo.save(stream);
+                broadcastEnded(stream);
+            }
+        }
     }
 
     @Override
@@ -97,6 +123,15 @@ public class LiveStreamServiceImpl implements LiveStreamService {
         LiveStream stream = liveStreamRepo.findByBooking_Id(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Stream not found"));
         return toDto(stream);
+    }
+
+    // tells everyone watching that the stream is over, so the viewer page can show "live ended"
+    private void broadcastEnded(LiveStream stream) {
+        UUID bookingId = stream.getBooking().getId();
+        String broadcasterId = stream.getBooking().getUser().getUserid().toString();
+        messagingTemplate.convertAndSend(
+                "/topic/stream/" + bookingId + "/signal",
+                new SignalMessageDto("stream-ended", broadcasterId, null, ""));
     }
 
     private LiveStreamDto toDto(LiveStream stream) {

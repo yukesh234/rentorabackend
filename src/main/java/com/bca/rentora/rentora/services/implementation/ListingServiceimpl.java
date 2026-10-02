@@ -5,6 +5,7 @@ import com.bca.rentora.rentora.dtos.listings.ListingReqDto;
 import com.bca.rentora.rentora.dtos.listings.OwnerSummaryDto;
 import com.bca.rentora.rentora.entity.*;
 import com.bca.rentora.rentora.exceptions.ResourceNotFoundException;
+import com.bca.rentora.rentora.repo.BookingRepo;
 import com.bca.rentora.rentora.repo.ListingImageRepo;
 import com.bca.rentora.rentora.repo.ListingRepo;
 import com.bca.rentora.rentora.repo.ReviewRepo;
@@ -17,7 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,11 +34,16 @@ public class ListingServiceimpl implements ListingService {
     private final ImageStorageService imageStorageService;
     private final ListingImageRepo listingImageRepo;
     private final ReviewRepo reviewRepo;
+    private final BookingRepo bookingRepo;
 
     @Override
     public ListingReqDto addProduct(ListingReqDto dto, MultipartFile[] files, UUID ownerId) throws IOException {
         User owner = userRepo.findById(ownerId)
                 .orElseThrow(() -> new RuntimeException("Owner not found"));
+
+        // venues (SPORTS / ENTERTAINMENT) are a single bookable resource
+        boolean isVenue = dto.getCategory() != null && dto.getCategory() != CategoryType.UTILITY;
+        Integer quantity = isVenue ? Integer.valueOf(1) : dto.getQuantity();
 
         Listing listing = Listing.builder()
                 .owner(owner)
@@ -44,8 +52,8 @@ public class ListingServiceimpl implements ListingService {
                 .description(dto.getDescription())
                 .pricePerUnit(dto.getPricePerUnit())
                 .priceUnit(dto.getPriceUnit())
-                .quantity(dto.getQuantity())
-                .status(ListingStatus.PENDING_REVIEW) // was: dto.getStatus()
+                .quantity(quantity)
+                .status(ListingStatus.PENDING_REVIEW)
                 .city(dto.getCity())
                 .district(dto.getDistrict())
                 .latitude(dto.getLatitude())
@@ -59,7 +67,7 @@ public class ListingServiceimpl implements ListingService {
 
         if (files != null) {
             for (MultipartFile file : files) {
-                if (file.isEmpty()) continue; // skip empty parts, avoids Cloudinary throwing on blank uploads
+                if (file.isEmpty()) continue;
 
                 Map result = imageStorageService.upload(file);
                 ListingImage image = ListingImage.builder()
@@ -91,8 +99,31 @@ public class ListingServiceimpl implements ListingService {
         existing.setDescription(dto.getDescription());
         existing.setPricePerUnit(dto.getPricePerUnit());
         existing.setPriceUnit(dto.getPriceUnit());
-        existing.setQuantity(dto.getQuantity());
-        existing.setStatus(dto.getStatus());
+
+        // venues are always quantity 1
+        boolean isVenue = existing.getCategory() != null && existing.getCategory() != CategoryType.UTILITY;
+        existing.setQuantity(isVenue ? Integer.valueOf(1) : dto.getQuantity());
+
+        // Owners can't approve their own listing:
+        // - editing a REJECTED listing sends it back to review (this is the "push it again" path)
+        // - a PENDING_REVIEW listing keeps its status until an admin decides
+        // - otherwise the owner can switch between ACTIVE / INACTIVE / DRAFT / ARCHIVED, but
+        //   going live from DRAFT or ARCHIVED needs a review first
+        ListingStatus current = existing.getStatus();
+        ListingStatus requested = dto.getStatus();
+
+        if (current == ListingStatus.REJECTED) {
+            existing.setStatus(ListingStatus.PENDING_REVIEW);
+            existing.setRejectionReason(null);
+        } else if (current != ListingStatus.PENDING_REVIEW
+                && requested != null
+                && requested != ListingStatus.PENDING_REVIEW
+                && requested != ListingStatus.REJECTED) {
+            boolean needsReview = requested == ListingStatus.ACTIVE
+                    && (current == ListingStatus.DRAFT || current == ListingStatus.ARCHIVED);
+            existing.setStatus(needsReview ? ListingStatus.PENDING_REVIEW : requested);
+        }
+
         existing.setCity(dto.getCity());
         existing.setDistrict(dto.getDistrict());
         existing.setLatitude(dto.getLatitude());
@@ -122,6 +153,27 @@ public class ListingServiceimpl implements ListingService {
 
     @Override
     @Transactional
+    public ListingReqDto resubmitListing(UUID id, UUID ownerId) {
+        Listing listing = listingRepo.findActiveById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Listing not found"));
+
+        if (!listing.getOwner().getUserid().equals(ownerId)) {
+            throw new IllegalArgumentException("You do not own this listing");
+        }
+
+        if (listing.getStatus() != ListingStatus.REJECTED) {
+            throw new IllegalArgumentException("Only rejected listings can be resubmitted");
+        }
+
+        listing.setStatus(ListingStatus.PENDING_REVIEW);
+        listing.setRejectionReason(null);
+        listingRepo.save(listing);
+
+        return toDto(listing);
+    }
+
+    @Override
+    @Transactional
     public void deleteProduct(UUID listingId, UUID ownerId) {
         Listing listing = listingRepo.findById(listingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Listing not found"));
@@ -134,17 +186,63 @@ public class ListingServiceimpl implements ListingService {
             throw new IllegalArgumentException("Listing is already deleted");
         }
 
+        boolean hasActiveBookings = bookingRepo.findByListing_Id(listingId).stream()
+                .anyMatch(b -> b.getStatus() != BookingStatus.CANCELLED);
+        if (hasActiveBookings) {
+            throw new IllegalArgumentException("This listing has existing bookings and cannot be deleted");
+        }
+
         listing.setDeletedAt(Instant.now());
-        listing.setStatus(ListingStatus.ARCHIVED); // optional, keeps status consistent
+        listing.setStatus(ListingStatus.ARCHIVED);
         listingRepo.save(listing);
     }
 
     @Override
-    public List<ListingReqDto> getFeed(UUID excludeOwnerId) {
+    public List<ListingReqDto> getFeed(UUID excludeOwnerId, String q, String category,
+                                       BigDecimal minPrice, BigDecimal maxPrice, String sort) {
+        final String needle = q == null ? "" : q.trim().toLowerCase();
+        final CategoryType categoryFilter = parseCategory(category);
+
+        Comparator<Listing> order;
+        if ("price_asc".equals(sort)) {
+            order = Comparator.comparing(Listing::getPricePerUnit,
+                    Comparator.nullsLast(Comparator.<BigDecimal>naturalOrder()));
+        } else if ("price_desc".equals(sort)) {
+            order = Comparator.comparing(Listing::getPricePerUnit,
+                    Comparator.nullsLast(Comparator.<BigDecimal>reverseOrder()));
+        } else {
+            order = Comparator.comparing(Listing::getCreatedAt,
+                    Comparator.nullsLast(Comparator.<Instant>reverseOrder()));
+        }
+
         return listingRepo.findAllForFeed(excludeOwnerId)
                 .stream()
+                .filter(l -> categoryFilter == null || l.getCategory() == categoryFilter)
+                .filter(l -> needle.isEmpty()
+                        || contains(l.getTitle(), needle)
+                        || contains(l.getDescription(), needle)
+                        || contains(l.getCity(), needle)
+                        || contains(l.getDistrict(), needle))
+                .filter(l -> minPrice == null
+                        || (l.getPricePerUnit() != null && l.getPricePerUnit().compareTo(minPrice) >= 0))
+                .filter(l -> maxPrice == null
+                        || (l.getPricePerUnit() != null && l.getPricePerUnit().compareTo(maxPrice) <= 0))
+                .sorted(order)
                 .map(this::toDto)
                 .toList();
+    }
+
+    private boolean contains(String text, String needle) {
+        return text != null && text.toLowerCase().contains(needle);
+    }
+
+    private CategoryType parseCategory(String category) {
+        if (category == null || category.isBlank()) return null;
+        try {
+            return CategoryType.valueOf(category.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null; // unknown category: ignore the filter instead of failing
+        }
     }
 
     @Override
@@ -214,6 +312,7 @@ public class ListingServiceimpl implements ListingService {
                 .priceUnit(listing.getPriceUnit())
                 .quantity(listing.getQuantity())
                 .status(listing.getStatus())
+                .rejectionReason(listing.getRejectionReason())
                 .city(listing.getCity())
                 .district(listing.getDistrict())
                 .latitude(listing.getLatitude())

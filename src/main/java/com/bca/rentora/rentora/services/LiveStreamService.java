@@ -10,4 +10,6 @@ public interface LiveStreamService {
     LiveStreamDto endStream(UUID bookingId, UUID ownerId);
     List<LiveStreamDto> getActiveStreams();
     LiveStreamDto getStreamByBooking(UUID bookingId);
+    // ends every live stream whose booking window has passed (called by the scheduler)
+    void endExpiredStreams();
 }

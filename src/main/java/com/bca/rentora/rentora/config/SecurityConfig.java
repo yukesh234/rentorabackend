@@ -73,6 +73,7 @@ public class SecurityConfig{
                                        "/api/v1/super-admin/auth/logout"
                                ).permitAll()
                                .requestMatchers(HttpMethod.GET, "/api/v1/listings/*").permitAll()
+                               .requestMatchers(HttpMethod.GET, "/api/reviews/listing/**").permitAll()
                                .anyRequest().authenticated())
                .exceptionHandling(ex-> ex.authenticationEntryPoint((req,
                                                                     res,

@@ -65,6 +65,19 @@ public class AnalyticsController {
         return ResponseEntity.ok(analyticsService.getCategoryBreakdown(userId, listingId, startDate, endDate));
     }
 
+    @GetMapping("/busiest-days")
+    public ResponseEntity<List<WeekdayPointDto>> getBusiestDays(
+            @RequestParam(required = false) UUID listingId,
+            @RequestParam(required = false) Instant startDate,
+            @RequestParam(required = false) Instant endDate,
+            HttpServletRequest request) {
+        String JWT = request.getHeader("Authorization");
+        String token = JWT.substring(7);
+        UUID userId = jwtService.getUserIdFromJwt(token);
+        if (userId == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(analyticsService.getBusiestDays(userId, listingId, startDate, endDate));
+    }
+
     @GetMapping("/top-listings")
     public ResponseEntity<List<TopListingDto>> getTopListings(
             @RequestParam(defaultValue = "5") int limit,

@@ -3,6 +3,7 @@ package com.bca.rentora.rentora.services.implementation;
 import com.bca.rentora.rentora.dtos.admin.AdminUserSummaryDto;
 import com.bca.rentora.rentora.dtos.admin.PendingListingDto;
 import com.bca.rentora.rentora.entity.Listing;
+import com.bca.rentora.rentora.entity.ListingImage;
 import com.bca.rentora.rentora.entity.ListingStatus;
 import com.bca.rentora.rentora.entity.User;
 import com.bca.rentora.rentora.exceptions.ResourceNotFoundException;
@@ -19,6 +20,8 @@ import java.util.stream.Collectors;
 @Service
 public class AdminModerationServiceImpl implements AdminModerationService {
 
+    private static final int MAX_REASON_LENGTH = 500;
+
     private final ListingRepo listingRepo;
     private final UserRepo userRepo;
 
@@ -33,7 +36,11 @@ public class AdminModerationServiceImpl implements AdminModerationService {
                 .stream()
                 .map(l -> new PendingListingDto(
                         l.getId(), l.getTitle(), l.getCategory().name(),
-                        l.getOwner().getUserid(), l.getOwner().getName(), l.getCreatedAt()))
+                        l.getOwner().getUserid(), l.getOwner().getName(), l.getOwner().getEmail(),
+                        l.getDescription(), l.getPricePerUnit(), l.getPriceUnit(), l.getQuantity(),
+                        l.getCity(), l.getDistrict(), l.getOpeningTime(), l.getClosingTime(),
+                        l.getImages().stream().map(ListingImage::getImageUrl).toList(),
+                        l.getCreatedAt()))
                 .collect(Collectors.toList());
     }
 
@@ -43,15 +50,23 @@ public class AdminModerationServiceImpl implements AdminModerationService {
         Listing listing = listingRepo.findById(listingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Listing not found"));
         listing.setStatus(ListingStatus.ACTIVE);
+        listing.setRejectionReason(null);
         listingRepo.save(listing);
     }
 
     @Override
     @Transactional
-    public void rejectListing(UUID listingId) {
+    public void rejectListing(UUID listingId, String reason) {
         Listing listing = listingRepo.findById(listingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Listing not found"));
-        listing.setStatus(ListingStatus.ARCHIVED);
+
+        String cleaned = reason == null ? "" : reason.trim();
+        if (cleaned.length() > MAX_REASON_LENGTH) {
+            cleaned = cleaned.substring(0, MAX_REASON_LENGTH);
+        }
+
+        listing.setStatus(ListingStatus.REJECTED);
+        listing.setRejectionReason(cleaned.isEmpty() ? null : cleaned);
         listingRepo.save(listing);
     }
 

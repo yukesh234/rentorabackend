@@ -2,6 +2,7 @@ package com.bca.rentora.rentora.controller;
 
 import com.bca.rentora.rentora.dtos.admin.AdminUserSummaryDto;
 import com.bca.rentora.rentora.dtos.admin.PendingListingDto;
+import com.bca.rentora.rentora.dtos.admin.RejectListingDto;
 import com.bca.rentora.rentora.services.AdminModerationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -29,8 +30,9 @@ public class AdminModerationController {
     }
 
     @PostMapping("/listings/{id}/reject")
-    public ResponseEntity<Void> rejectListing(@PathVariable UUID id) {
-        adminModerationService.rejectListing(id);
+    public ResponseEntity<Void> rejectListing(@PathVariable UUID id,
+                                              @RequestBody(required = false) RejectListingDto dto) {
+        adminModerationService.rejectListing(id, dto == null ? null : dto.reason());
         return ResponseEntity.noContent().build();
     }
 

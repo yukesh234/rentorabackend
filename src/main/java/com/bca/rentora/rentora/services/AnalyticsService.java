@@ -10,6 +10,7 @@ public interface AnalyticsService {
     AnalyticsSummaryDto getSummary(UUID ownerId, UUID listingId, Instant startDate, Instant endDate);
     List<TimeSeriesPointDto> getBookingsOverTime(UUID ownerId, UUID listingId, Instant startDate, Instant endDate);
     List<CategoryBreakdownDto> getCategoryBreakdown(UUID ownerId, UUID listingId, Instant startDate, Instant endDate);
+    List<WeekdayPointDto> getBusiestDays(UUID ownerId, UUID listingId, Instant startDate, Instant endDate);
     List<TopListingDto> getTopListings(UUID ownerId, int limit);
     List<ListingOptionDto> getOwnerListingOptions(UUID ownerId);
 }

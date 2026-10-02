@@ -11,7 +11,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -19,13 +24,14 @@ import java.util.stream.Collectors;
 @Service
 public class BookingServiceImpl implements BookingService {
 
+    private static final ZoneId ZONE = ZoneId.of("Asia/Kathmandu");
+
     private final BookingRepo bookingRepo;
     private final ListingRepo listingRepo;
     private final UserRepo userRepo;
     private final ReviewRepo reviewRepo;
     private final TournamentRepo tournamentRepo;
 
-    // update constructor
     public BookingServiceImpl(BookingRepo bookingRepo, ListingRepo listingRepo, UserRepo userRepo,
                               ReviewRepo reviewRepo, TournamentRepo tournamentRepo) {
         this.bookingRepo = bookingRepo;
@@ -41,7 +47,9 @@ public class BookingServiceImpl implements BookingService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        Listing listing = listingRepo.findActiveById(dto.listingId())
+        // Locks the listing row until this transaction ends, so concurrent
+        // bookings for the same listing are processed one at a time
+        Listing listing = listingRepo.findActiveByIdForUpdate(dto.listingId())
                 .orElseThrow(() -> new ResourceNotFoundException("Listing not found"));
 
         if (dto.quantity() == null || dto.quantity() <= 0) {
@@ -55,6 +63,9 @@ public class BookingServiceImpl implements BookingService {
         if (dto.paymentMethod() == null) {
             throw new IllegalArgumentException("Payment method is required");
         }
+
+        // venues can only be booked inside their opening hours
+        validateOpeningHours(listing, dto.startTime(), dto.endTime());
 
         // Slot-based availability: sum quantity already booked in overlapping bookings
         List<Booking> overlapping = bookingRepo.findOverlappingBookings(
@@ -73,7 +84,19 @@ public class BookingServiceImpl implements BookingService {
             );
         }
 
+        // price = pricePerUnit x duration units x quantity (same as the frontend estimate)
+        double hours = Duration.between(dto.startTime(), dto.endTime()).toMinutes() / 60.0;
+        String unit = listing.getPriceUnit() == null ? "" : listing.getPriceUnit();
+        long units = switch (unit) {
+            case "hour" -> (long) Math.ceil(hours);
+            case "day" -> (long) Math.ceil(hours / 24);
+            case "week" -> (long) Math.ceil(hours / (24 * 7));
+            default -> 1L;
+        };
+        units = Math.max(units, 1L);
+
         BigDecimal totalAmount = listing.getPricePerUnit()
+                .multiply(BigDecimal.valueOf(units))
                 .multiply(BigDecimal.valueOf(dto.quantity()));
 
         Booking booking = new Booking();
@@ -92,11 +115,41 @@ public class BookingServiceImpl implements BookingService {
 
         bookingRepo.save(booking);
 
-        // NOTE: listing.quantity is no longer decremented here — availability is
-        // now computed dynamically per time slot via findOverlappingBookings.
-        // This also means cancelBooking no longer needs to restore quantity.
-
         return toDto(booking);
+    }
+
+    /**
+     * Venue listings (SPORTS / ENTERTAINMENT) with opening and closing times can only be
+     * booked inside those hours, on a single day. UTILITY items have no hours and are skipped.
+     */
+    private void validateOpeningHours(Listing listing, Instant start, Instant end) {
+        LocalTime open = listing.getOpeningTime();
+        LocalTime close = listing.getClosingTime();
+
+        if (listing.getCategory() == CategoryType.UTILITY || open == null || close == null) {
+            return;
+        }
+
+        boolean closesAtMidnight = close.equals(LocalTime.MIDNIGHT);
+        // overnight hours (closing earlier than opening) are not supported, so no check is applied
+        if (!closesAtMidnight && !close.isAfter(open)) {
+            return;
+        }
+
+        ZonedDateTime s = start.atZone(ZONE);
+        ZonedDateTime e = end.atZone(ZONE);
+        LocalDate day = s.toLocalDate();
+
+        ZonedDateTime opensAt = day.atTime(open).atZone(ZONE);
+        ZonedDateTime closesAt = closesAtMidnight
+                ? day.plusDays(1).atStartOfDay(ZONE)
+                : day.atTime(close).atZone(ZONE);
+
+        if (s.isBefore(opensAt) || e.isAfter(closesAt)) {
+            throw new IllegalArgumentException(
+                    "This venue is open from " + open + " to " + close
+                            + ". Please book within opening hours on a single day.");
+        }
     }
 
     @Override
@@ -159,10 +212,12 @@ public class BookingServiceImpl implements BookingService {
             throw new IllegalArgumentException("Completed bookings cannot be cancelled");
         }
 
+        if (booking.getEndTime().isBefore(Instant.now())) {
+            throw new IllegalArgumentException("Past bookings cannot be cancelled");
+        }
+
         booking.setStatus(BookingStatus.CANCELLED);
         bookingRepo.save(booking);
-        // no listing.quantity restoration needed anymore — cancelled bookings are
-        // simply excluded from the overlap query, freeing the slot automatically
 
         return toDto(booking);
     }

@@ -2,20 +2,24 @@ package com.bca.rentora.rentora.controller;
 
 import com.bca.rentora.rentora.dtos.livestream.ChatMessageDto;
 import com.bca.rentora.rentora.dtos.livestream.SignalMessageDto;
+import com.bca.rentora.rentora.repo.LiveStreamRepo;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Controller;
 
 import java.time.Instant;
+import java.util.UUID;
 
 @Controller
 public class SignalingController {
 
     private final SimpMessagingTemplate messagingTemplate;
+    private final LiveStreamRepo liveStreamRepo;
 
-    public SignalingController(SimpMessagingTemplate messagingTemplate) {
+    public SignalingController(SimpMessagingTemplate messagingTemplate, LiveStreamRepo liveStreamRepo) {
         this.messagingTemplate = messagingTemplate;
+        this.liveStreamRepo = liveStreamRepo;
     }
 
     /**
@@ -42,9 +46,13 @@ public class SignalingController {
     /**
      * Live chat — client sends to /app/stream/{bookingId}/chat,
      * server broadcasts to /topic/stream/{bookingId}/chat.
+     * Messages are dropped unless the stream is currently live.
      */
     @MessageMapping("/stream/{bookingId}/chat")
     public void relayChat(@DestinationVariable String bookingId, ChatMessageDto message) {
+        if (!isLive(bookingId)) {
+            return;
+        }
         ChatMessageDto stamped = new ChatMessageDto(
                 message.senderId(),
                 message.senderName(),
@@ -52,5 +60,15 @@ public class SignalingController {
                 Instant.now()
         );
         messagingTemplate.convertAndSend("/topic/stream/" + bookingId + "/chat", stamped);
+    }
+
+    private boolean isLive(String bookingId) {
+        try {
+            return liveStreamRepo.findByBooking_Id(UUID.fromString(bookingId))
+                    .map(s -> Boolean.TRUE.equals(s.getIsLive()))
+                    .orElse(false);
+        } catch (IllegalArgumentException e) {
+            return false; // not a valid booking id
+        }
     }
 }

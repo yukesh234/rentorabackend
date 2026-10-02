@@ -2,6 +2,7 @@ package com.bca.rentora.rentora.repo;
 
 import com.bca.rentora.rentora.entity.Booking;
 import com.bca.rentora.rentora.entity.BookingStatus;
+import com.bca.rentora.rentora.entity.PaymentMethod;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,6 +16,10 @@ public interface BookingRepo extends JpaRepository<Booking, UUID> {
     List<Booking> findByListing_Id(UUID listingId);
     List<Booking> findByStatus(BookingStatus status);
     List<Booking> findByListing_Owner_Userid(UUID ownerId);
+
+    // used by the lifecycle job
+    List<Booking> findByStatusAndPaymentMethodAndCreatedAtBefore(BookingStatus status, PaymentMethod paymentMethod, Instant cutoff);
+    List<Booking> findByStatusAndEndTimeBefore(BookingStatus status, Instant time);
 
     // Bookings on this listing that overlap [startTime, endTime), excluding cancelled ones
     @Query("""

@@ -37,6 +37,10 @@ public class Listing {
         @Enumerated(EnumType.STRING)
         private ListingStatus status;
 
+        // set by the admin when a listing is rejected, cleared when it is resubmitted
+        @Column(length = 500)
+        private String rejectionReason;
+
         private String city;
         private String district;
         private Double latitude;

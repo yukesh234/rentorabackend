@@ -11,9 +11,13 @@ import com.bca.rentora.rentora.services.AnalyticsService;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.format.TextStyle;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -43,24 +47,22 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     @Override
     public AnalyticsSummaryDto getSummary(UUID ownerId, UUID listingId, Instant startDate, Instant endDate) {
-        List<Booking> bookings = analyticsRepo.findForOwner(ownerId, listingId, orDefaultStart(startDate), orDefaultEnd(endDate));
+        Instant end = orDefaultEnd(endDate);
+        List<Booking> bookings = analyticsRepo.findForOwner(ownerId, listingId, orDefaultStart(startDate), end);
 
         long total = bookings.size();
-        long confirmed = count(bookings, BookingStatus.CONFIRMED);
+        long completed = count(bookings, BookingStatus.COMPLETED);
+        // a completed booking was a confirmed one, so it still counts as confirmed
+        long confirmed = count(bookings, BookingStatus.CONFIRMED) + completed;
         long pending = count(bookings, BookingStatus.PENDING);
         long cancelled = count(bookings, BookingStatus.CANCELLED);
-        long completed = count(bookings, BookingStatus.COMPLETED);
 
-        BigDecimal totalRevenue = bookings.stream()
-                .filter(b -> b.getStatus() != BookingStatus.CANCELLED)
-                .filter(b -> b.getPaymentMethod() == PaymentMethod.ESEWA || Boolean.TRUE.equals(b.getIsPaid()))
-                .map(Booking::getTotalAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalRevenue = revenueOf(bookings);
 
         BigDecimal outstandingCash = bookings.stream()
                 .filter(b -> b.getPaymentMethod() == PaymentMethod.CASH)
                 .filter(b -> !Boolean.TRUE.equals(b.getIsPaid()))
-                .filter(b -> b.getStatus() == BookingStatus.CONFIRMED)
+                .filter(b -> b.getStatus() == BookingStatus.CONFIRMED || b.getStatus() == BookingStatus.COMPLETED)
                 .map(Booking::getTotalAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -73,9 +75,45 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
         double cancellationRate = total == 0 ? 0.0 : (double) cancelled / total;
 
+        // bookings that were not cancelled
+        List<Booking> active = bookings.stream()
+                .filter(b -> b.getStatus() != BookingStatus.CANCELLED)
+                .toList();
+
+        BigDecimal averageBookingValue = active.isEmpty()
+                ? BigDecimal.ZERO
+                : active.stream()
+                .map(Booking::getTotalAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(active.size()), 2, RoundingMode.HALF_UP);
+
+        Map<UUID, Long> bookingsPerRenter = active.stream()
+                .collect(Collectors.groupingBy(b -> b.getUser().getUserid(), Collectors.counting()));
+        long uniqueRenters = bookingsPerRenter.size();
+        long repeatRenters = bookingsPerRenter.values().stream().filter(c -> c >= 2).count();
+        double repeatRenterRate = uniqueRenters == 0 ? 0.0 : (double) repeatRenters / uniqueRenters;
+
+        long cashBookings = active.stream().filter(b -> b.getPaymentMethod() == PaymentMethod.CASH).count();
+        long esewaBookings = active.stream().filter(b -> b.getPaymentMethod() == PaymentMethod.ESEWA).count();
+
+        // previous period of the same length, so the dashboard can show change over time
+        Long previousTotal = null;
+        BigDecimal previousRevenue = null;
+        if (startDate != null) {
+            Duration length = Duration.between(startDate, end);
+            if (!length.isNegative() && !length.isZero()) {
+                List<Booking> previous = analyticsRepo.findForOwner(
+                        ownerId, listingId, startDate.minus(length), startDate.minusMillis(1));
+                previousTotal = (long) previous.size();
+                previousRevenue = revenueOf(previous);
+            }
+        }
+
         return new AnalyticsSummaryDto(
                 total, confirmed, pending, cancelled, completed,
-                totalRevenue, outstandingCash, refundsOwed, cancellationRate
+                totalRevenue, outstandingCash, refundsOwed, cancellationRate,
+                averageBookingValue, uniqueRenters, repeatRenterRate,
+                cashBookings, esewaBookings, previousTotal, previousRevenue
         );
     }
 
@@ -108,7 +146,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     @Override
     public List<CategoryBreakdownDto> getCategoryBreakdown(UUID ownerId, UUID listingId, Instant startDate, Instant endDate) {
-        List<Booking> bookings = analyticsRepo.findForOwner(ownerId, listingId, startDate, endDate);
+        List<Booking> bookings = analyticsRepo.findForOwner(ownerId, listingId, orDefaultStart(startDate), orDefaultEnd(endDate));
 
         Map<String, Long> counts = bookings.stream()
                 .collect(Collectors.groupingBy(
@@ -119,6 +157,26 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         return counts.entrySet().stream()
                 .map(e -> new CategoryBreakdownDto(e.getKey(), e.getValue()))
                 .sorted(Comparator.comparing(CategoryBreakdownDto::category))
+                .collect(Collectors.toList());
+    }
+
+    // Which weekdays the rentals actually happen on (by booking start time), Mon..Sun
+    @Override
+    public List<WeekdayPointDto> getBusiestDays(UUID ownerId, UUID listingId, Instant startDate, Instant endDate) {
+        List<Booking> bookings = analyticsRepo.findForOwner(ownerId, listingId, orDefaultStart(startDate), orDefaultEnd(endDate));
+
+        Map<DayOfWeek, Long> counts = bookings.stream()
+                .filter(b -> b.getStatus() != BookingStatus.CANCELLED)
+                .filter(b -> b.getStartTime() != null)
+                .collect(Collectors.groupingBy(
+                        b -> b.getStartTime().atZone(ZONE).getDayOfWeek(),
+                        Collectors.counting()
+                ));
+
+        return Arrays.stream(DayOfWeek.values())
+                .map(d -> new WeekdayPointDto(
+                        d.getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
+                        counts.getOrDefault(d, 0L)))
                 .collect(Collectors.toList());
     }
 
@@ -158,6 +216,15 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .stream()
                 .map(l -> new ListingOptionDto(l.getId(), l.getTitle()))
                 .collect(Collectors.toList());
+    }
+
+    // revenue = non-cancelled bookings that are paid (eSewa, or cash marked received)
+    private BigDecimal revenueOf(List<Booking> bookings) {
+        return bookings.stream()
+                .filter(b -> b.getStatus() != BookingStatus.CANCELLED)
+                .filter(b -> b.getPaymentMethod() == PaymentMethod.ESEWA || Boolean.TRUE.equals(b.getIsPaid()))
+                .map(Booking::getTotalAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private long count(List<Booking> bookings, BookingStatus status) {

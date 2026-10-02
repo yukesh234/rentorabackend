@@ -1,8 +1,9 @@
 package com.bca.rentora.rentora.dtos.forecast;
 
 import java.util.List;
+import java.util.UUID;
 
-// What the React app receives, one per category
+// What the React app receives: one per category, or one per listing when grouped by product
 public record ForecastDto(
         String category,
         Integer weekOfYear,
@@ -12,5 +13,7 @@ public record ForecastDto(
         Boolean lowConfidence,
         List<Integer> last4Bookings,
         Integer currentBookings,
-        Integer currentCustomers
+        Integer currentCustomers,
+        UUID listingId,             // null when grouped by category
+        String listingTitle         // null when grouped by category
 ) {}

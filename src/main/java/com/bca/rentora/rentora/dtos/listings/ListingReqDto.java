@@ -25,6 +25,7 @@ public class ListingReqDto {
     private String priceUnit;
     private Integer quantity;
     private ListingStatus status;
+    private String rejectionReason;
 
     private String city;
     private String district;

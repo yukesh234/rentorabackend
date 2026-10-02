@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -57,11 +58,19 @@ public class ListingController {
 
     // Public feed: works for anonymous AND logged-in users.
     // If logged in, excludes the caller's own listings.
+    // Optional filters: q (title/description/city/district), category, minPrice, maxPrice,
+    // sort = newest (default) | price_asc | price_desc
     @GetMapping
-    public ResponseEntity<List<ListingReqDto>> getFeed(HttpServletRequest request) {
+    public ResponseEntity<List<ListingReqDto>> getFeed(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) BigDecimal minPrice,
+            @RequestParam(required = false) BigDecimal maxPrice,
+            @RequestParam(required = false) String sort,
+            HttpServletRequest request) {
         UUID currentUserId = resolveCurrentUserId(request);
         System.out.println("getFeed resolved currentUserId: " + currentUserId);
-        return ResponseEntity.ok(listingService.getFeed(currentUserId));
+        return ResponseEntity.ok(listingService.getFeed(currentUserId, q, category, minPrice, maxPrice, sort));
     }
 
     // Owner dashboard: requires authentication, returns only the caller's own listings
@@ -97,6 +106,16 @@ public class ListingController {
             return ResponseEntity.status(401).build();
         }
         return ResponseEntity.ok(listingService.updateProduct(id, dto, files, currentUserId));
+    }
+
+    // Owner pushes a rejected listing back into the review queue
+    @PostMapping("/{id}/resubmit")
+    public ResponseEntity<ListingReqDto> resubmit(@PathVariable UUID id, HttpServletRequest request) {
+        UUID currentUserId = resolveCurrentUserId(request);
+        if (currentUserId == null) {
+            return ResponseEntity.status(401).build();
+        }
+        return ResponseEntity.ok(listingService.resubmitListing(id, currentUserId));
     }
 
     @DeleteMapping("/{id}")

@@ -31,12 +31,13 @@ public class ForecastController {
             @RequestParam(defaultValue = "false") boolean festival,
             @RequestParam(defaultValue = "false") boolean promo,
             @RequestParam(defaultValue = "false") boolean schoolHoliday,
+            @RequestParam(defaultValue = "category") String groupBy,
             HttpServletRequest request) {
         String JWT = request.getHeader("Authorization");
         String token = JWT.substring(7);
         UUID userId = jwtService.getUserIdFromJwt(token);
         if (userId == null) return ResponseEntity.status(401).build();
         return ResponseEntity.ok(
-                forecastService.getForecast(userId, listingId, festival, promo, schoolHoliday));
+                forecastService.getForecast(userId, listingId, festival, promo, schoolHoliday, groupBy));
     }
 }
