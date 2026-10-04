@@ -5,5 +5,6 @@ import java.util.UUID;
 public record TeamResponseDto(
         UUID id,
         UUID tournamentId,
-        String name
+        String name,
+        UUID registeredById
 ) {}

@@ -22,5 +22,10 @@ public class Team {
     @JoinColumn(name = "tournament_id", nullable = false)
     private Tournament tournament;
 
+    // the user who registered this team (null for teams created before this field existed)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "registered_by")
+    private User registeredBy;
+
     private String name;
 }

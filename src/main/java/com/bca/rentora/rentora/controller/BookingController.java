@@ -92,4 +92,13 @@ public class BookingController {
     public ResponseEntity<List<BookedSlotDto>> getBookedSlots(@PathVariable UUID listingId) {
         return ResponseEntity.ok(bookingService.getBookedSlots(listingId));
     }
+    @PatchMapping("/{id}/mark-refunded")
+    public ResponseEntity<BookingResponseDto> markRefunded(@PathVariable UUID id,
+                                                           HttpServletRequest request) {
+        String JWT = request.getHeader("Authorization");
+        String token = JWT.substring(7);
+        UUID userId = jwtService.getUserIdFromJwt(token);
+        if (userId == null) return ResponseEntity.status(401).build();
+        return ResponseEntity.ok(bookingService.markRefunded(id, userId));
+    }
 }

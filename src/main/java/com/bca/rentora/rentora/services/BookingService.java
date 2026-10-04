@@ -15,5 +15,5 @@ public interface BookingService {
     BookingResponseDto cancelBooking(UUID id, UUID userId);
     BookingResponseDto markCashPaymentReceived(UUID bookingId, UUID ownerId);
     List<BookedSlotDto> getBookedSlots(UUID listingId);
-
+    BookingResponseDto markRefunded(UUID bookingId, UUID ownerId);
 }

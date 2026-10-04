@@ -23,6 +23,7 @@ public record BookingResponseDto(
         BookingStatus status,
         PaymentMethod paymentMethod,
         Boolean isPaid,
+        Boolean isRefunded,
         Boolean hasReviewed,
         Boolean hasTournament,
         UUID tournamentId,

@@ -37,6 +37,8 @@ public class ListingReqDto {
 
     private Instant createdAt;
     private List<String> imageUrls;
+    // same photos as imageUrls, but with ids so the owner can delete one
+    private List<ListingImageDto> images;
 
     private OwnerSummaryDto owner;
 }

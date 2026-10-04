@@ -20,4 +20,5 @@ public interface ListingService {
         ListingReqDto updateAvailability(UUID id, Integer quantity, UUID ownerId);
         ListingDetailDto getListingById(UUID id);
         ListingReqDto resubmitListing(UUID id, UUID ownerId);
+        ListingReqDto deleteImage(UUID listingId, UUID imageId, UUID ownerId) throws IOException;
 }

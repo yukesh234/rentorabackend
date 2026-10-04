@@ -70,6 +70,7 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .filter(b -> b.getStatus() == BookingStatus.CANCELLED)
                 .filter(b -> b.getPaymentMethod() == PaymentMethod.ESEWA)
                 .filter(b -> Boolean.TRUE.equals(b.getIsPaid()))
+                .filter(b -> !Boolean.TRUE.equals(b.getRefunded()))
                 .map(Booking::getTotalAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 

@@ -45,6 +45,8 @@ public class Booking {
 
     @Column(updatable = false)
     private Instant createdAt;
+    // null on old rows, treat as false
+    private Boolean refunded = false;
 
     @PrePersist
     protected void onCreate() {

@@ -10,7 +10,10 @@ public interface TournamentService {
     TournamentResponseDto getTournament(UUID tournamentId);
     List<TournamentResponseDto> getBrowsableTournaments();
 
-    TeamResponseDto addTeam(UUID tournamentId, TeamCreateDto dto, UUID organizerId);
+    // any logged-in user can register a team while the tournament is PLANNED
+    TeamResponseDto addTeam(UUID tournamentId, TeamCreateDto dto, UUID userId);
+    // organizer can remove any team, a user can remove the team they registered
+    void removeTeam(UUID tournamentId, UUID teamId, UUID userId);
     List<TeamResponseDto> getTeams(UUID tournamentId);
 
     List<MatchResponseDto> generateBracket(UUID tournamentId, UUID organizerId);

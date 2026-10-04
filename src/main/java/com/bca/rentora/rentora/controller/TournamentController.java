@@ -46,6 +46,7 @@ public class TournamentController {
         return ResponseEntity.ok(tournamentService.getBrowsableTournaments());
     }
 
+    // any logged-in user can register a team (B3)
     @PostMapping("/{id}/teams")
     public ResponseEntity<TeamResponseDto> addTeam(@PathVariable UUID id,
                                                    @Valid @RequestBody TeamCreateDto dto,
@@ -55,6 +56,18 @@ public class TournamentController {
         UUID userId = jwtService.getUserIdFromJwt(token);
         if (userId == null) return ResponseEntity.status(401).build();
         return ResponseEntity.ok(tournamentService.addTeam(id, dto, userId));
+    }
+
+    @DeleteMapping("/{id}/teams/{teamId}")
+    public ResponseEntity<Void> removeTeam(@PathVariable UUID id,
+                                           @PathVariable UUID teamId,
+                                           HttpServletRequest request) {
+        String JWT = request.getHeader("Authorization");
+        String token = JWT.substring(7);
+        UUID userId = jwtService.getUserIdFromJwt(token);
+        if (userId == null) return ResponseEntity.status(401).build();
+        tournamentService.removeTeam(id, teamId, userId);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/{id}/teams")

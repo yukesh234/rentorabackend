@@ -163,4 +163,15 @@ public class ListingController {
     public ResponseEntity<ListingDetailDto> getListingById(@PathVariable UUID id) {
         return ResponseEntity.ok(listingService.getListingById(id));
     }
+
+    @DeleteMapping("/{id}/images/{imageId}")
+    public ResponseEntity<ListingReqDto> deleteImage(@PathVariable UUID id,
+                                                     @PathVariable UUID imageId,
+                                                     HttpServletRequest request) throws IOException {
+        UUID currentUserId = resolveCurrentUserId(request);
+        if (currentUserId == null) {
+            return ResponseEntity.status(401).build();
+        }
+        return ResponseEntity.ok(listingService.deleteImage(id, imageId, currentUserId));
+    }
 }

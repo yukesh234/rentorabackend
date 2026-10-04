@@ -35,7 +35,8 @@ public class Match {
     private Integer scoreB;
 
     private String round;
-    private Integer roundOrder; // display/sort only now — no longer used for advancement math
+    // display/sort only: stage * 1000 + index inside the round
+    private Integer roundOrder;
 
     @Enumerated(EnumType.STRING)
     private BracketSide bracketSide;
@@ -45,13 +46,24 @@ public class Match {
 
     private Instant scheduledAt;
 
-    // NEW — explicit advancement pointer, set once at bracket-generation time.
-    // Removes all runtime position-inference math.
+    // where the WINNER goes (set once at bracket-generation time)
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "next_match_id")
     private Match nextMatch;
 
-    private Integer nextMatchSlot; // 0 = winner goes into teamA, 1 = teamB
+    private Integer nextMatchSlot; // 0 = teamA, 1 = teamB
+
+    // where the LOSER goes (double elimination only; null = eliminated)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "loser_next_match_id")
+    private Match loserNextMatch;
+
+    private Integer loserNextMatchSlot; // 0 = teamA, 1 = teamB
+
+    // true when nobody will ever arrive in that slot (a bye upstream).
+    // Boolean (not boolean) so ddl-auto=update can add the column to existing rows.
+    private Boolean teamASlotDead;
+    private Boolean teamBSlotDead;
 
     @Column(updatable = false)
     private Instant createdAt;

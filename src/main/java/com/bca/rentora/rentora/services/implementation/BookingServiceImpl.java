@@ -31,14 +31,16 @@ public class BookingServiceImpl implements BookingService {
     private final UserRepo userRepo;
     private final ReviewRepo reviewRepo;
     private final TournamentRepo tournamentRepo;
+    private final PaymentRepo paymentRepo;
 
     public BookingServiceImpl(BookingRepo bookingRepo, ListingRepo listingRepo, UserRepo userRepo,
-                              ReviewRepo reviewRepo, TournamentRepo tournamentRepo) {
+                              ReviewRepo reviewRepo, TournamentRepo tournamentRepo, PaymentRepo paymentRepo) {
         this.bookingRepo = bookingRepo;
         this.listingRepo = listingRepo;
         this.userRepo = userRepo;
         this.reviewRepo = reviewRepo;
         this.tournamentRepo = tournamentRepo;
+        this.paymentRepo = paymentRepo;
     }
 
     @Override
@@ -250,6 +252,39 @@ public class BookingServiceImpl implements BookingService {
         return toDto(booking);
     }
 
+    // owner confirms they sent the money back for a cancelled, paid eSewa booking
+    @Override
+    @Transactional
+    public BookingResponseDto markRefunded(UUID bookingId, UUID ownerId) {
+        Booking booking = bookingRepo.findById(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
+
+        if (!booking.getListing().getOwner().getUserid().equals(ownerId)) {
+            throw new IllegalArgumentException("You do not own this listing");
+        }
+
+        boolean refundOwed = booking.getStatus() == BookingStatus.CANCELLED
+                && booking.getPaymentMethod() == PaymentMethod.ESEWA
+                && Boolean.TRUE.equals(booking.getIsPaid());
+        if (!refundOwed) {
+            throw new IllegalArgumentException("No refund is owed for this booking");
+        }
+
+        if (Boolean.TRUE.equals(booking.getRefunded())) {
+            throw new IllegalArgumentException("Refund already marked as sent");
+        }
+
+        booking.setRefunded(true);
+        bookingRepo.save(booking);
+
+        paymentRepo.findByBooking_Id(bookingId).ifPresent(p -> {
+            p.setStatus(PaymentStatus.REFUNDED);
+            paymentRepo.save(p);
+        });
+
+        return toDto(booking);
+    }
+
     private BookingResponseDto toDto(Booking booking) {
         List<ListingImage> images = booking.getListing().getImages();
         String imageUrl = (images != null && !images.isEmpty())
@@ -273,6 +308,7 @@ public class BookingServiceImpl implements BookingService {
                 booking.getStatus(),
                 booking.getPaymentMethod(),
                 booking.getIsPaid(),
+                Boolean.TRUE.equals(booking.getRefunded()),
                 reviewRepo.existsByBooking_Id(booking.getId()),
                 existingTournament.isPresent(),
                 existingTournament.map(Tournament::getId).orElse(null),

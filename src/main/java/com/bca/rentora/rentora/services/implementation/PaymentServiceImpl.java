@@ -66,11 +66,16 @@ public class PaymentServiceImpl implements PaymentService {
 
         String transactionUuid = UUID.randomUUID().toString();
 
-        Payment payment = new Payment();
+        // payments.booking_id is unique, so a retry ("Pay now") must reuse the existing row
+        Payment payment = paymentRepo.findByBooking_Id(booking.getId()).orElseGet(Payment::new);
+        if (payment.getStatus() == PaymentStatus.PAID) {
+            throw new IllegalArgumentException("This booking has already been paid");
+        }
         payment.setBooking(booking);
         payment.setGateway(PaymentGateway.ESEWA);
-        payment.setTransactionId(transactionUuid);
+        payment.setTransactionId(transactionUuid); // new uuid for every attempt
         payment.setAmount(booking.getTotalAmount());
+        payment.setStatus(PaymentStatus.INITIATED);
         paymentRepo.save(payment);
 
         String signature = esewaService.createSignature(booking.getTotalAmount(), transactionUuid, merchantCode);
@@ -87,7 +92,6 @@ public class PaymentServiceImpl implements PaymentService {
         fields.put("failure_url", failureUrl);
         fields.put("signed_field_names", "total_amount,transaction_uuid,product_code");
         fields.put("signature", signature);
-        System.out.println(fields);
         return new PaymentResponseDto(esewaFormUrl, fields, transactionUuid);
     }
 
@@ -125,6 +129,7 @@ public class PaymentServiceImpl implements PaymentService {
 
                 Booking booking = payment.getBooking();
                 booking.setStatus(BookingStatus.CONFIRMED);
+                booking.setIsPaid(true);
                 bookingRepo.save(booking);
                 return true;
             } else {

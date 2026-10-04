@@ -72,6 +72,9 @@ public class SecurityConfig{
                                        "/api/v1/super-admin/auth/refresh",
                                        "/api/v1/super-admin/auth/logout"
                                ).permitAll()
+                               .requestMatchers("/api/tournaments/my").authenticated()
+                               .requestMatchers(HttpMethod.GET, "/api/tournaments/**").permitAll()
+                               .requestMatchers(HttpMethod.GET, "/api/livestreams/**").permitAll()
                                .requestMatchers(HttpMethod.GET, "/api/v1/listings/*").permitAll()
                                .requestMatchers(HttpMethod.GET, "/api/reviews/listing/**").permitAll()
                                .anyRequest().authenticated())

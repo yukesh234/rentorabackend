@@ -1,6 +1,7 @@
 package com.bca.rentora.rentora.services.implementation;
 
 import com.bca.rentora.rentora.dtos.listings.ListingDetailDto;
+import com.bca.rentora.rentora.dtos.listings.ListingImageDto;
 import com.bca.rentora.rentora.dtos.listings.ListingReqDto;
 import com.bca.rentora.rentora.dtos.listings.OwnerSummaryDto;
 import com.bca.rentora.rentora.entity.*;
@@ -266,6 +267,37 @@ public class ListingServiceimpl implements ListingService {
     }
 
     @Override
+    @Transactional
+    public ListingReqDto deleteImage(UUID listingId, UUID imageId, UUID ownerId) throws IOException {
+        Listing listing = listingRepo.findActiveById(listingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Listing not found"));
+
+        if (!listing.getOwner().getUserid().equals(ownerId)) {
+            throw new IllegalArgumentException("You do not own this listing");
+        }
+
+        ListingImage image = listing.getImages().stream()
+                .filter(i -> i.getId().equals(imageId))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Image not found on this listing"));
+
+        // remove it from Cloudinary too; if that fails, still remove it from our DB
+        if (image.getPublicId() != null && !image.getPublicId().isBlank()) {
+            try {
+                imageStorageService.delete(image.getPublicId());
+            } catch (Exception e) {
+                System.err.println("Cloudinary delete failed for " + image.getPublicId() + ": " + e.getMessage());
+            }
+        }
+
+        // orphanRemoval = true on Listing.images deletes the row
+        listing.getImages().remove(image);
+        listingRepo.save(listing);
+
+        return toDto(listing);
+    }
+
+    @Override
     public ListingDetailDto getListingById(UUID id) {
         Listing listing = listingRepo.findActiveById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Listing not found"));
@@ -322,6 +354,9 @@ public class ListingServiceimpl implements ListingService {
                 .createdAt(listing.getCreatedAt())
                 .imageUrls(listing.getImages().stream()
                         .map(ListingImage::getImageUrl)
+                        .toList())
+                .images(listing.getImages().stream()
+                        .map(i -> new ListingImageDto(i.getId(), i.getImageUrl()))
                         .toList())
                 .owner(OwnerSummaryDto.builder()
                         .id(listing.getOwner().getUserid())
