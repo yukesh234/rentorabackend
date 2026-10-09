@@ -28,7 +28,6 @@ public class UserServiceImpl implements Userservice {
 
     private final UserRepo userRepo;
     private final PasswordEncoder passwordEncoder;
-    // TODO: inject your existing image upload service here, e.g.:
     // private final CloudinaryService cloudinaryService;
     private final ImageStorageService  imageStorageService;
 

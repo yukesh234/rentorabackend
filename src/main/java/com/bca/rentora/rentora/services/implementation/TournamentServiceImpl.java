@@ -33,7 +33,7 @@ public class TournamentServiceImpl implements TournamentService {
         this.userRepo = userRepo;
     }
 
-    // ---------------- Tournament CRUD ----------------
+    //  Tournament CRUD
 
     @Override
     @Transactional
@@ -81,7 +81,7 @@ public class TournamentServiceImpl implements TournamentService {
                 .collect(Collectors.toList());
     }
 
-    // ---------------- Teams (B3) ----------------
+    //  Teams (B3)
 
     @Override
     @Transactional
@@ -157,7 +157,7 @@ public class TournamentServiceImpl implements TournamentService {
                 .collect(Collectors.toList());
     }
 
-    // ---------------- Bracket generation (B5) ----------------
+    //  Bracket generation (B5)
 
     @Override
     @Transactional
@@ -386,7 +386,7 @@ public class TournamentServiceImpl implements TournamentService {
         return m;
     }
 
-    // ---------------- Advancement (winner / loser delivery with bye handling) ----------------
+    //  Advancement (winner / loser delivery with bye handling)
 
     /**
      * Sends a team (or "nobody", when team == null) into a slot of the target match.
